@@ -161,8 +161,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "FPS|Mesh")
 	TObjectPtr<USkeletalMeshComponent> Mesh3P;
 
+	// 5-parameter signature matching your BP_Weapon Event FireEffects node
 	UFUNCTION(BlueprintImplementableEvent, Category = "FPS|Effects")
-	void PlayFireEffects(const FVector& ImpactPoint, bool bIsFirstPerson);
+	void FireEffects(const FVector& ImpactPoint, const FVector& CrosshairTarget, const FVector& ImpactNormal, EPhysicalSurface ImpactSurfaceType, bool bIsFirstPerson);
 
 private:
 	void ExecuteFireCycle();
@@ -174,6 +175,10 @@ private:
 
 	UFUNCTION(Server, Reliable)
 	void Server_FireProjectile(const FVector& Origin, const FRotator& Direction, int32 EventID);
+
+	// The missing declaration that caused the errors:
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_PlayFireFX(const FVector& ImpactPoint);
 
 	UFUNCTION(Server, Reliable)
 	void Server_StartReload();
@@ -203,7 +208,4 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInstanceDynamic> DynMatInst_AmmoCounter;
-
-	UFUNCTION(NetMulticast, Unreliable)
-	void Multicast_PlayFireFX(const FVector& ImpactPoint);
 };

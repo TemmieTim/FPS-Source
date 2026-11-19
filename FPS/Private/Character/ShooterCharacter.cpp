@@ -155,9 +155,10 @@ void AShooterCharacter::PossessedBy(AController* NewController)
 		InitializeFromHeroData(InitialHeroData);
 	}
 
-	if (IsValid(Combat))
+	// Sync legacy pointer so Udemy Blueprints don't crash on null
+	if (Combat && Equipment)
 	{
-		Combat->SpawnInventory();
+		Combat->CurrentWeapon = Equipment->GetActiveWeapon();
 	}
 }
 

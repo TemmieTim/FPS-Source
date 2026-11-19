@@ -74,7 +74,7 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_IsDetected)
 	bool bIsDetected;
 
-	UPROPERTY(EditDefaultsOnly, Category = "FPS|Stealth")
+	UPROPERTY(Replicated, EditDefaultsOnly, Category = "FPS|Stealth")
 	bool bHasSprintInvisibility;
 
 private:

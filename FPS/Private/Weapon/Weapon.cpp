@@ -8,6 +8,7 @@
 #include "Combat/HealthComponent.h"
 #include "Weapon/ProjectileBase.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "FPS/FPS.h"
@@ -189,39 +190,23 @@ void AWeapon::FireHitscanRound()
 
 		FHitResult Hit;
 		FCollisionQueryParams QueryParams;
+		QueryParams.bReturnPhysicalMaterial = true;
 		QueryParams.AddIgnoredActor(this);
 		QueryParams.AddIgnoredActor(InstigatorPawn);
 
 		GetWorld()->LineTraceSingleByChannel(Hit, AimLoc, TraceEnd, FPSTraceChannels::ECC_Weapon, QueryParams);
 		PelletHits.Add(Hit);
 
-		// Cosmetic visual feedback locally
-		PlayFireEffects(Hit.bBlockingHit ? Hit.ImpactPoint : TraceEnd, InstigatorPawn->IsLocallyControlled());
+		// Cosmetic visual feedback locally (Matches BP_Weapon pins!)
+		const FVector ImpactPoint = Hit.bBlockingHit ? Hit.ImpactPoint : TraceEnd;
+		const FVector CrosshairTarget = TraceEnd;
+		const FVector ImpactNormal = Hit.bBlockingHit ? Hit.ImpactNormal : FVector::UpVector;
+		const EPhysicalSurface SurfaceType = Hit.PhysMaterial.IsValid() ? Hit.PhysMaterial->SurfaceType.GetValue() : SurfaceType_Default;
+
+		FireEffects(ImpactPoint, CrosshairTarget, ImpactNormal, SurfaceType, InstigatorPawn->IsLocallyControlled());
 	}
 
 	Server_FireHitscan(PelletHits, EventID);
-}
-
-void AWeapon::FireProjectileRound()
-{
-	APawn* InstigatorPawn = GetInstigator();
-	if (!InstigatorPawn || !ProjectileClass) return;
-
-	FVector AimLoc;
-	FRotator AimRot;
-	if (InstigatorPawn->Implements<UCombatInterface>())
-	{
-		ICombatInterface::Execute_GetAimViewPoint(InstigatorPawn, AimLoc, AimRot);
-	}
-	else
-	{
-		InstigatorPawn->GetActorEyesViewPoint(AimLoc, AimRot);
-	}
-
-	const int32 EventID = FMath::Rand();
-	PlayFireEffects(AimLoc + (AimRot.Vector() * 500.f), InstigatorPawn->IsLocallyControlled());
-
-	Server_FireProjectile(AimLoc, AimRot, EventID);
 }
 
 void AWeapon::Server_FireHitscan_Implementation(const TArray<FHitResult>& Hits, int32 EventID)
@@ -263,9 +248,33 @@ void AWeapon::Server_FireHitscan_Implementation(const TArray<FHitResult>& Hits, 
 			DamageData.BaseDamage = CalculatedDamage;
 			DamageData.FinalIncomingDamage = CalculatedDamage;
 
+			// Each shotgun pellet is evaluated independently against Armor mitigation!
 			TargetHealth->ApplyDamageEvent(DamageData);
 		}
 	}
+}
+
+void AWeapon::FireProjectileRound()
+{
+	APawn* InstigatorPawn = GetInstigator();
+	if (!InstigatorPawn || !ProjectileClass) return;
+
+	FVector AimLoc;
+	FRotator AimRot;
+	if (InstigatorPawn->Implements<UCombatInterface>())
+	{
+		ICombatInterface::Execute_GetAimViewPoint(InstigatorPawn, AimLoc, AimRot);
+	}
+	else
+	{
+		InstigatorPawn->GetActorEyesViewPoint(AimLoc, AimRot);
+	}
+
+	const int32 EventID = FMath::Rand();
+	const FVector TraceEnd = AimLoc + (AimRot.Vector() * 5000.f);
+
+	FireEffects(AimLoc, TraceEnd, FVector::UpVector, SurfaceType_Default, InstigatorPawn->IsLocallyControlled());
+	Server_FireProjectile(AimLoc, AimRot, EventID);
 }
 
 void AWeapon::Server_FireProjectile_Implementation(const FVector& Origin, const FRotator& Direction, int32 EventID)
@@ -293,6 +302,18 @@ void AWeapon::Server_FireProjectile_Implementation(const FVector& Origin, const 
 
 		Projectile->InitializeProjectile(DamageData, ProjectileLaunchSpeed, ProjectileGravityScale);
 	}
+}
+
+void AWeapon::Multicast_PlayFireFX_Implementation(const FVector& ImpactPoint)
+{
+	// Do not replay on the locally controlled player (they already predicted it locally!)
+	if (GetInstigator() && GetInstigator()->IsLocallyControlled())
+	{
+		return;
+	}
+
+	// Remote clients play the visual/audio effects (muzzle flash, tracer, impact)
+	FireEffects(ImpactPoint, ImpactPoint, FVector::UpVector, SurfaceType_Default, false);
 }
 
 void AWeapon::StartReload()
@@ -331,18 +352,6 @@ void AWeapon::OnRep_Ammo()
 	{
 		DynMatInst_AmmoCounter->SetScalarParameterValue(FName("Rounds_Current"), Ammo);
 	}
-}
-
-void AWeapon::Multicast_PlayFireFX_Implementation(const FVector& ImpactPoint)
-{
-	// Do not replay on the locally controlled player (they already predicted it locally!)
-	if (GetInstigator() && GetInstigator()->IsLocallyControlled())
-	{
-		return;
-	}
-
-	// Remote clients play the visual/audio effects (muzzle flash, tracer, impact)
-	PlayFireEffects(ImpactPoint, false);
 }
 
 void AWeapon::AttachToOwningPawn(APawn* Pawn) const
@@ -455,7 +464,8 @@ void AWeapon::WeaponTrace(FHitResult& OutHit, float TraceLength)
 
 void AWeapon::Local_Fire(const FVector& ImpactPoint, const FVector& ImpactNormal, TEnumAsByte<EPhysicalSurface> ImpactSurfaceType, bool bIsFirstPerson)
 {
-	PlayFireEffects(ImpactPoint, bIsFirstPerson);
+	FireEffects(ImpactPoint, ImpactPoint, ImpactNormal, ImpactSurfaceType, bIsFirstPerson);
+
 	if (GetInstigator() && GetInstigator()->IsLocallyControlled())
 	{
 		Ammo = FMath::Clamp(Ammo - 1, 0, MagCapacity);
