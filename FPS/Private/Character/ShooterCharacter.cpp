@@ -142,6 +142,12 @@ void AShooterCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// Sync legacy Combat->CurrentWeapon on BOTH Server and Clients
+	if (Combat && Equipment)
+	{
+		Combat->CurrentWeapon = Equipment->GetActiveWeapon();
+	}
+
 	CalculateTurnInPlaceParameters(DeltaTime);
 	CalculateFABRIKSocketTransform();
 }
@@ -667,6 +673,12 @@ void AShooterCharacter::WeaponReplicated_Implementation()
 	{
 		bWeaponFirstReplicated = true;
 		AWeapon* ActiveWeapon = Equipment ? Equipment->GetActiveWeapon() : (Combat ? Combat->CurrentWeapon.Get() : nullptr);
+
+		if (Combat && ActiveWeapon)
+		{
+			Combat->CurrentWeapon = ActiveWeapon;
+		}
+
 		OnWeaponFirstReplicated.Broadcast(ActiveWeapon, Combat ? Combat->bHitPlayer : false);
 	}
 }
